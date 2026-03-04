@@ -1,5 +1,7 @@
 import os
 import json
+import urllib.request
+import urllib.error
 from typing import TypedDict, List, Dict, Any, Optional
 from rich.console import Console
 
@@ -95,27 +97,47 @@ CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.9"))
 MAX_SEARCH_RETRIES = int(os.getenv("MAX_SEARCH_RETRIES", "3"))
 
 # ============== LLM CALLS ==============
-def call_llm(prompt: str, temperature: float = 0.7) -> Dict[str, Any]:
-    """Call LLM with prompt - using DashScope qwen3-max"""
-    try:
-        import dashscope
-        dashscope.api_key = os.getenv("OPENAI_API_KEY")
+def _openai_config() -> Dict[str, str]:
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    if not api_key:
+        raise ValueError("Missing OPENAI_API_KEY")
+    return {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+    }
 
-        response = dashscope.Generation.call(
-            model='qwen3-max',
-            prompt=prompt,
-            temperature=temperature,
-            result_format='message'
+
+def call_llm(prompt: str, temperature: float = 0.7) -> Dict[str, Any]:
+    """Call OpenAI-compatible chat completions endpoint."""
+    try:
+        conf = _openai_config()
+        payload = {
+            "model": conf["model"],
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        req = urllib.request.Request(
+            url=f"{conf['base_url']}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {conf['api_key']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
-        if response.status_code == 200:
-            content = response.output.choices[0].message.content
-            # Try to parse JSON
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                return {"raw": content}
-        else:
-            return {"error": f"API error: {response.code}"}
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        content = body["choices"][0]["message"]["content"]
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return {"raw": content}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        return {"error": f"HTTP {e.code}: {error_body}"}
     except Exception as e:
         # Fallback: mock response for development
         return {"mock": True, "error": str(e)}

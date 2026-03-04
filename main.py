@@ -1,5 +1,7 @@
 import os
 import json
+import urllib.request
+import urllib.error
 from typing import TypedDict, List, Dict, Any, Optional
 from tools import search_tool
 from dotenv import load_dotenv
@@ -53,20 +55,43 @@ class AgentState(TypedDict):
 
 
 # ============== LLM CALLS ==============
-def call_llm(prompt: str, temperature: float = 0.3) -> Dict[str, Any]:
-    """Call LLM with prompt - using DashScope qwen3-max"""
-    import dashscope
-    dashscope.api_key = os.getenv("OPENAI_API_KEY")
-    response = dashscope.Generation.call(
-        model='qwen3-max',
-        prompt=prompt,
-        temperature=temperature,
-        result_format='message'
-    )
-    if response.status_code == 200:
-        content = response.output.choices[0].message.content
+def _openai_config() -> Dict[str, str]:
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    if not api_key:
+        raise ValueError("Missing OPENAI_API_KEY")
+    return {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+    }
 
-        return content
+
+def call_llm(prompt: str, temperature: float = 0.3) -> str:
+    """Call OpenAI-compatible chat completions endpoint."""
+    conf = _openai_config()
+    payload = {
+        "model": conf["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+    }
+    req = urllib.request.Request(
+        url=f"{conf['base_url']}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {conf['api_key']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        return body["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"LLM HTTP error {e.code}: {error_body}") from e
 
 
 
@@ -248,10 +273,10 @@ def grader_node(state: AgentState) -> AgentState:
         state["should_retry_search"] = True
         fail_reason = [result[i]['reason'] for i in keep_ids]
         state['retry_reason'] = fail_reason
-        console.print(f"[red]❌[/red] Not enough valid results ({len(state["filtered_results"])} < {MIN_VALID_RESULTS}). Marked for retry.")
+        console.print(f"[red]❌[/red] Not enough valid results ({len(state['filtered_results'])} < {MIN_VALID_RESULTS}). Marked for retry.")
     else:
         state["should_retry_search"] = False
-        console.print(f"[green]✅[/green] Filtered results: {len(state["filtered_results"])} valid results kept.")
+        console.print(f"[green]✅[/green] Filtered results: {len(state['filtered_results'])} valid results kept.")
     # if "error" in result or "mock" in result:
     #     # Fallback: assume pass if we have results
     #     passed = len(search_results) > 0
