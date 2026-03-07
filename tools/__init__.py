@@ -1,5 +1,5 @@
 from .search_tools import search_tool
 from .iqs_mcp_tool import IQSSearchTool
-from .iqs_readpage_tool import IQSReadPageTool
+from .mcp_readpage_tool import SyncMCPFetchTool
 
-__all__ = ['search_tool','IQSSearchTool','IQSReadPageTool']
+__all__ = ['search_tool','IQSSearchTool','SyncMCPFetchTool']

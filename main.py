@@ -325,6 +325,9 @@ def search_node(state: AgentState) -> AgentState:
         )
         results.extend(current_results)
         per_query_debug.append(searcher.last_debug)
+    
+    # 结束mcp工具
+    searcher.scraper_tool.stop()
 
     state["search_results_raw"] = results
 

@@ -3,19 +3,21 @@ import re
 from urllib.parse import urljoin, urlparse, urlunparse
 from typing import List, Dict, Any
 
-from tools.iqs_readpage_tool import IQSReadPageTool
 from tools.iqs_mcp_tool import IQSSearchTool
+from tools.mcp_readpage_tool import SyncMCPFetchTool
 
 
 class search_tool():
     def __init__(self):
         self.tool = IQSSearchTool()
-        self.scraper_tool = IQSReadPageTool()
-        self.enable_second_hop = os.getenv("SECOND_HOP_ENABLED", "1") != "0"
+        self.scraper_tool = SyncMCPFetchTool()
+        self.enable_second_hop = os.getenv("SECOND_HOP_ENABLED", "0")
         self.second_hop_max_per_query = int(os.getenv("SECOND_HOP_MAX_PER_QUERY", "4"))
         self.second_hop_max_per_page = int(os.getenv("SECOND_HOP_MAX_PER_PAGE", "2"))
         self.second_hop_min_score = float(os.getenv("SECOND_HOP_MIN_SCORE", "1.0"))
         self.last_debug: Dict[str, Any] = {}
+        # 启动mcp工具
+        self.scraper_tool.start()
 
     def search(self, query: str, num_results: int = 7, context_query: str = ""):
         results = []
@@ -51,7 +53,13 @@ class search_tool():
             debug["first_hop_selected_urls"] = list(urls_to_scrape)
 
             for url in urls_to_scrape:
-                content = self.scraper_tool.run(url)
+                answer = self.scraper_tool.fetch(url)
+                if answer and answer.content:
+                    content = answer.content[0].text
+                else:
+                    content = ''
+
+                # content = self.scraper_tool.run(url)
                 debug["first_hop_fetches"].append(
                     {
                         "url": url,
